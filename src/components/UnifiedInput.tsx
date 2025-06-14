@@ -1,6 +1,9 @@
 import React, { useCallback, useState } from 'react';
 import { Upload, Type, File, CheckCircle, AlertCircle, X, FileText, BookOpen, GraduationCap, Brain } from 'lucide-react';
 import { FileProcessor } from '../services/fileProcessor';
+import { useSubscriptionStore } from '../stores/useSubscriptionStore';
+import { useUsageStore } from '../stores/useUsageStore';
+import LimitReachedModal from './LimitReachedModal';
 
 interface UnifiedInputProps {
   onSubmit: (data: { content: string; fileName?: string; hasFile: boolean }) => void;
@@ -13,6 +16,12 @@ const UnifiedInput: React.FC<UnifiedInputProps> = ({ onSubmit }) => {
   const [textContent, setTextContent] = useState('');
   const [error, setError] = useState<string | null>(null);
   const [extractedContent, setExtractedContent] = useState<string>('');
+  const [showLimitModal, setShowLimitModal] = useState(false);
+  const [limitMessage, setLimitMessage] = useState('');
+
+  // Get subscription and usage data
+  const { getCurrentPlan } = useSubscriptionStore();
+  const { getUsage, incrementUsage } = useUsageStore();
 
   const handleDragOver = useCallback((e: React.DragEvent) => {
     e.preventDefault();
@@ -25,17 +34,64 @@ const UnifiedInput: React.FC<UnifiedInputProps> = ({ onSubmit }) => {
   }, []);
 
   const processFile = async (file: File) => {
-    setError(null);
     setIsProcessing(true);
-    setUploadedFile(file);
+    setError(null);
     
     try {
+      // Check subscription limits for file uploads
+      const currentPlan = getCurrentPlan();
+      const usage = await getUsage();
+      
+      if (currentPlan.limits.fileUploads !== 'unlimited') {
+        if (usage.fileUploads >= currentPlan.limits.fileUploads) {
+          setLimitMessage(
+            `You've reached your limit of ${currentPlan.limits.fileUploads} file uploads per month. ` +
+            `Please upgrade your plan to upload more files.`
+          );
+          setShowLimitModal(true);
+          throw new Error('File upload limit reached');
+        }
+      }
+      
+      // Check storage limits
+      const storageLimit = currentPlan.limits.storage;
+      const currentStorage = usage.storageUsed;
+      const fileSizeBytes = file.size;
+      
+      // Convert storage limit to bytes
+      let storageLimitBytes: number;
+      if (storageLimit === 'unlimited') {
+        storageLimitBytes = Number.MAX_SAFE_INTEGER;
+      } else {
+        const match = storageLimit.match(/(\d+)(MB|GB)/);
+        if (!match) throw new Error('Invalid storage limit format');
+        
+        const amount = parseInt(match[1]);
+        const unit = match[2];
+        
+        if (unit === 'MB') {
+          storageLimitBytes = amount * 1024 * 1024;
+        } else if (unit === 'GB') {
+          storageLimitBytes = amount * 1024 * 1024 * 1024;
+        } else {
+          throw new Error('Invalid storage unit');
+        }
+      }
+      
+      if (currentStorage + fileSizeBytes > storageLimitBytes) {
+        setLimitMessage(
+          `You've reached your storage limit of ${storageLimit}. ` +
+          `Please upgrade your plan or delete some files to free up space.`
+        );
+        setShowLimitModal(true);
+        throw new Error('Storage limit reached');
+      }
+
       // Validate file size
       if (!FileProcessor.validateFileSize(file)) {
         throw new Error('File size exceeds 25MB limit');
       }
 
-      // Extract text content
       const content = await FileProcessor.extractTextFromFile(file);
       
       if (content.length < 50) {
@@ -43,12 +99,19 @@ const UnifiedInput: React.FC<UnifiedInputProps> = ({ onSubmit }) => {
       }
 
       setExtractedContent(content);
-      setIsProcessing(false);
+      setUploadedFile(file);
+      
+      // Track file upload usage
+      await incrementUsage('fileUploads');
+      await incrementUsage('storageUsed', file.size);
     } catch (error) {
-      setIsProcessing(false);
-      setError(error instanceof Error ? error.message : 'Failed to process file');
+      if (error instanceof Error && !error.message.includes('limit reached')) {
+        setError(error.message);
+      }
       setUploadedFile(null);
       setExtractedContent('');
+    } finally {
+      setIsProcessing(false);
     }
   };
 
@@ -69,7 +132,7 @@ const UnifiedInput: React.FC<UnifiedInputProps> = ({ onSubmit }) => {
     }
   };
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     
     const combinedContent = [extractedContent, textContent].filter(Boolean).join('\n\n');
@@ -79,11 +142,32 @@ const UnifiedInput: React.FC<UnifiedInputProps> = ({ onSubmit }) => {
       return;
     }
 
-    onSubmit({
-      content: combinedContent,
-      fileName: uploadedFile?.name,
-      hasFile: !!uploadedFile
-    });
+    try {
+      // Check AI request limits before submitting
+      const currentPlan = getCurrentPlan();
+      const usage = await getUsage();
+      
+      if (currentPlan.limits.aiRequests !== 'unlimited') {
+        if (usage.aiRequests >= currentPlan.limits.aiRequests) {
+          setLimitMessage(
+            `You've reached your limit of ${currentPlan.limits.aiRequests} AI requests per month. ` +
+            `Please upgrade your plan to generate more study plans.`
+          );
+          setShowLimitModal(true);
+          return;
+        }
+      }
+
+      onSubmit({
+        content: combinedContent,
+        fileName: uploadedFile?.name,
+        hasFile: !!uploadedFile
+      });
+    } catch (error) {
+      if (error instanceof Error) {
+        setError(error.message);
+      }
+    }
   };
 
   const clearFile = () => {
@@ -302,6 +386,15 @@ const UnifiedInput: React.FC<UnifiedInputProps> = ({ onSubmit }) => {
           </div>
         </form>
       </div>
+
+      {/* Subscription Limit Modal */}
+      <LimitReachedModal
+        isOpen={showLimitModal}
+        onClose={() => setShowLimitModal(false)}
+        message={limitMessage}
+        featureName={limitMessage.includes('AI') ? 'AI Requests' : limitMessage.includes('file') ? 'File Uploads' : 'Storage'}
+        currentPlan={getCurrentPlan().name}
+      />
     </div>
   );
 };

@@ -1,7 +1,8 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { X } from 'lucide-react';
 import SignInForm from './SignInForm';
 import SignUpForm from './SignUpForm';
+import { useAuthStore } from '../stores/useAuthStore';
 
 interface AuthModalProps {
   isOpen: boolean;
@@ -11,6 +12,14 @@ interface AuthModalProps {
 
 const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose, initialMode = 'signin' }) => {
   const [mode, setMode] = useState<'signin' | 'signup'>(initialMode);
+  const { isAuthenticated } = useAuthStore();
+
+  // Close modal if user becomes authenticated
+  useEffect(() => {
+    if (isAuthenticated) {
+      onClose();
+    }
+  }, [isAuthenticated, onClose]);
 
   if (!isOpen) return null;
 

@@ -1,6 +1,20 @@
 # PrepBuddy - AI-Powered Study Planner
 
-A professional EdTech application that transforms your study materials into personalized learning plans using **real AI models** - completely free!
+A professional EdTech application that transforms your study materials into personalized learning plans using **real AI models** and **cloud synchronization** - completely free!
+
+## 🚀 New Features
+
+### Hybrid Storage System
+- **Cloud Sync**: All your data is automatically synchronized with Supabase
+- **Offline Support**: Continue studying even without internet connection
+- **Real-time Updates**: Changes sync across all your devices instantly
+- **Data Security**: Your study plans are safely stored in the cloud
+
+### Enhanced Architecture
+- **Zustand State Management**: Efficient local state management
+- **Supabase Integration**: Robust cloud database with real-time capabilities
+- **Optimistic Updates**: Immediate UI updates with background sync
+- **Error Handling**: Graceful fallbacks when offline or sync fails
 
 ## 🤖 Real AI Integration
 
@@ -31,20 +45,45 @@ PrepBuddy uses **actual AI models** to analyze your content and generate truly p
 - **Complexity Analysis**: Adapts to your material's difficulty level
 - **Personalized Tasks**: Creates specific activities based on your content
 
+### Cloud-Powered Features:
+- **Multi-Device Sync**: Access your study plans from anywhere
+- **Real-time Collaboration**: Share and collaborate on study groups
+- **Progress Tracking**: Your achievements and streaks sync across devices
+- **Backup & Recovery**: Never lose your study progress
+
 ### Smart Fallbacks:
 - **Enhanced Algorithms**: Intelligent content processing when AI isn't available
-- **Always Works**: Never fails to generate a study plan
+- **Offline Mode**: Continue studying without internet connection
 - **Progressive Enhancement**: Better with AI, still great without
 
-### Unified Interface:
-- **File Upload + Text Input**: Single form accepts both documents and additional notes
-- **Multiple Formats**: PDF, DOCX, TXT, MD, RTF, LaTeX, BibTeX support
-- **Large File Support**: Up to 25MB for comprehensive documents
-- **Academic Focus**: Designed specifically for educational content
+## 🚀 Quick Setup (5 minutes)
 
-## 🚀 Quick Setup (2 minutes)
+### Step 1: Set up Supabase (2 minutes)
 
-### Option 1: Use with Real AI (Recommended)
+1. **Create a Supabase Project**:
+   ```bash
+   # Visit: https://supabase.com
+   # Click "New Project"
+   # Choose your organization and create project
+   ```
+
+2. **Get your credentials**:
+   ```bash
+   # Go to Settings > API
+   # Copy your Project URL and anon public key
+   ```
+
+3. **Set up environment**:
+   ```bash
+   cp .env.example .env
+   # Add your Supabase URL and anon key to .env
+   ```
+
+### Step 2: Connect to Supabase
+
+Click the "Connect to Supabase" button in the top right of the app to automatically set up your database schema.
+
+### Step 3: Add AI (Optional but Recommended)
 
 1. **Get a Free API Key** (choose one):
    ```bash
@@ -58,63 +97,101 @@ PrepBuddy uses **actual AI models** to analyze your content and generate truly p
    Visit: https://openrouter.ai/
    ```
 
-2. **Add to Environment**:
+2. **Add to .env file**:
    ```bash
-   cp .env.example .env
-   # Add your key to .env file
+   # Add your AI key to .env file
    ```
 
-3. **Run PrepBuddy**:
-   ```bash
-   npm install
-   npm run dev
-   ```
+### Step 4: Run PrepBuddy
 
-### Option 2: Use Smart Fallbacks (No Setup)
-Just run the app - it works immediately with intelligent algorithms!
+```bash
+npm install
+npm run dev
+```
 
 ## 🎯 Features
 
+### Core Features
 - **📄 Universal File Support**: PDF, DOCX, TXT, MD, RTF, LaTeX, BibTeX
 - **✍️ Combined Input**: Upload files AND add additional notes
 - **🤖 Real AI Analysis**: Actual content understanding and personalization
 - **⚙️ Full Customization**: Duration, study time, difficulty levels
 - **📊 Progress Tracking**: Interactive task completion system
-- **🎨 Beautiful Design**: Production-ready, academic-focused interface
-- **🔄 Smart Fallbacks**: Always works, even without AI setup
 
-## 🧠 How PrepBuddy's AI Works
+### Cloud Features
+- **☁️ Cloud Sync**: Automatic synchronization across devices
+- **👥 Study Groups**: Collaborate with other learners
+- **📈 Analytics**: Detailed progress tracking and insights
+- **🔄 Real-time Updates**: Changes sync instantly
+- **📱 Multi-Device**: Access from phone, tablet, or computer
 
-1. **Content Analysis**: AI reads your entire document and additional notes
-2. **Topic Identification**: Extracts key concepts and learning objectives
-3. **Complexity Assessment**: Determines appropriate difficulty and pacing
-4. **Schedule Optimization**: Creates logical learning progression
-5. **Task Generation**: Specific activities tailored to your content
+### Smart Features
+- **🧠 AI Coaching**: Get help with specific tasks
+- **🎯 Adaptive Learning**: Plans adjust to your progress
+- **🏆 Achievement System**: Gamified learning experience
+- **📅 Smart Scheduling**: Optimized study sessions
+- **🔔 Reminders**: Stay on track with your goals
 
-## 📊 Example AI Output
+## 🏗️ Architecture
 
-Instead of generic tasks like "Read chapter 1", PrepBuddy creates:
-- "Analyze the relationship between X and Y concepts from your uploaded material"
-- "Practice the specific methodology described in section 2 of your document"
-- "Create examples based on the case studies provided in your notes"
+### Frontend
+- **React + TypeScript**: Modern, type-safe development
+- **Tailwind CSS**: Beautiful, responsive design
+- **Zustand**: Lightweight state management
+- **Vite**: Fast development and building
+
+### Backend
+- **Supabase**: PostgreSQL database with real-time features
+- **Row Level Security**: Secure data access
+- **Real-time Subscriptions**: Live updates
+- **Edge Functions**: Serverless API endpoints
+
+### AI Integration
+- **Multiple Providers**: Groq, Together AI, OpenRouter
+- **Intelligent Fallbacks**: Always works, even without AI
+- **Content Analysis**: Advanced NLP for understanding
+- **Personalization**: Tailored to your specific content
+
+## 📊 Database Schema
+
+The app uses a robust PostgreSQL schema with:
+
+- **Profiles**: User information and preferences
+- **Study Plans**: AI-generated learning paths
+- **Task Completions**: Progress tracking
+- **Quiz Results**: Assessment data
+- **Study Groups**: Collaborative learning
+
+All tables include Row Level Security for data protection.
 
 ## 🔧 Technical Details
 
-- **Frontend**: React + TypeScript + Tailwind CSS
-- **AI Integration**: Multiple providers with automatic failover
-- **File Processing**: PDF.js for PDFs, Mammoth.js for Word documents
-- **Content Analysis**: Advanced NLP for fallback mode
-- **Error Handling**: Graceful degradation with smart fallbacks
-- **Performance**: Optimized for speed and reliability
+### State Management
+- **Zustand Stores**: Modular state management
+- **Persistence**: Local storage with cloud sync
+- **Optimistic Updates**: Immediate UI feedback
+- **Error Recovery**: Graceful handling of sync failures
 
-## 🌟 Why PrepBuddy's Approach?
+### Offline Support
+- **Local Storage**: Continue working offline
+- **Sync Queue**: Changes sync when connection returns
+- **Conflict Resolution**: Smart merging of changes
+- **Progressive Enhancement**: Works with or without internet
 
-1. **Real Personalization**: AI understands YOUR specific content
-2. **Cost-Effective**: Uses free AI services with smart fallbacks
-3. **Reliable**: Multiple providers + intelligent algorithms
-4. **Privacy-Focused**: Your content stays secure
-5. **Production-Ready**: Professional quality for real academic use
-6. **Academic-Focused**: Built specifically for educational content
+### Security
+- **Row Level Security**: Database-level access control
+- **JWT Authentication**: Secure user sessions
+- **API Key Protection**: Environment variable security
+- **Data Encryption**: Secure data transmission
+
+## 🌟 Why PrepBuddy's Hybrid Approach?
+
+1. **Best of Both Worlds**: Local speed + cloud reliability
+2. **Always Available**: Works offline and online
+3. **Multi-Device**: Sync across all your devices
+4. **Collaborative**: Share and learn together
+5. **Scalable**: Grows with your learning needs
+6. **Secure**: Enterprise-grade data protection
 
 ## 🚀 Deployment
 
@@ -123,16 +200,17 @@ Ready for production deployment:
 ```bash
 npm run build
 # Deploy to Netlify, Vercel, or any static host
+# Set up Supabase environment variables
 ```
 
 ## 🤝 Contributing
 
-Want to add more AI providers or improve the algorithms? Contributions welcome!
+Want to add more features or improve the hybrid storage? Contributions welcome!
 
 ## 📄 License
 
-MIT License - Build amazing EdTech tools with real AI!
+MIT License - Build amazing EdTech tools with hybrid storage!
 
 ---
 
-**🎓 Transform your learning with PrepBuddy - Your AI study companion that actually understands your content!**
+**🎓 Transform your learning with PrepBuddy - Your AI study companion with cloud sync that actually understands your content!**

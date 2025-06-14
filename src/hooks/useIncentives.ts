@@ -1,6 +1,8 @@
 import { useState, useEffect } from 'react';
 import { StudyPlan } from '../App';
 import { useAuth } from './useAuth';
+import { useTaskCompletionStore } from '../stores/useTaskCompletionStore';
+import { useAuthStore } from '../stores/useAuthStore';
 
 interface IncentiveData {
   currentStreak: number;
@@ -14,12 +16,15 @@ interface IncentiveData {
 
 export const useIncentives = (studyPlans: StudyPlan[]) => {
   const { user, updateUserStats } = useAuth();
+  const { profile } = useAuthStore();
+  const { completions } = useTaskCompletionStore();
+  
   const [incentiveData, setIncentiveData] = useState<IncentiveData>({
-    currentStreak: 0,
-    longestStreak: 0,
+    currentStreak: profile?.stats?.currentStreak || 0,
+    longestStreak: profile?.stats?.longestStreak || 0,
     hasStudiedToday: false,
-    totalXP: 0,
-    level: 1,
+    totalXP: profile?.stats?.totalXP || 0,
+    level: profile?.stats?.level || 1,
     achievements: [],
     lastStudyDate: null
   });
@@ -31,33 +36,14 @@ export const useIncentives = (studyPlans: StudyPlan[]) => {
     message: string;
   } | null>(null);
 
-  // Calculate streak and other metrics
+  // Calculate streak and other metrics from Supabase data
   useEffect(() => {
     const calculateIncentives = () => {
       const today = new Date();
       today.setHours(0, 0, 0, 0);
 
-      // Get all completed tasks from localStorage
-      const allCompletedDates: Date[] = [];
-      let totalCompletedTasks = 0;
-      
-      studyPlans.forEach(plan => {
-        const completedTasksData = localStorage.getItem(`completed-tasks-${plan.id}`);
-        if (completedTasksData) {
-          const completedTasks = JSON.parse(completedTasksData);
-          totalCompletedTasks += completedTasks.length;
-          
-          // For each completed task, we'll use the plan creation date as a base
-          // In a real app, you'd store actual completion timestamps
-          completedTasks.forEach((taskId: string, index: number) => {
-            const baseDate = new Date(plan.createdAt);
-            baseDate.setDate(baseDate.getDate() + index);
-            allCompletedDates.push(baseDate);
-          });
-        }
-      });
-
-      // Sort dates
+      // Use completions from Supabase instead of localStorage
+      const allCompletedDates = completions.map(c => new Date(c.completedAt));
       allCompletedDates.sort((a, b) => b.getTime() - a.getTime());
 
       // Calculate current streak
@@ -86,18 +72,23 @@ export const useIncentives = (studyPlans: StudyPlan[]) => {
         return taskDate.getTime() === today.getTime();
       });
 
-      // Calculate longest streak (simplified)
-      const longestStreak = Math.max(currentStreak, 
-        parseInt(localStorage.getItem('longest-streak') || '0'));
+      // Calculate longest streak (use profile data if available)
+      const longestStreak = Math.max(
+        currentStreak, 
+        profile?.stats?.longestStreak || 0,
+        parseInt(localStorage.getItem('longest-streak') || '0')
+      );
       
       if (currentStreak > longestStreak) {
         localStorage.setItem('longest-streak', currentStreak.toString());
       }
 
-      // Calculate XP and level
+      // Calculate XP and level (use profile data if available)
       const completedPlans = studyPlans.filter(plan => plan.progress.completedDays === plan.progress.totalDays).length;
-      const totalXP = (totalCompletedTasks * 10) + (currentStreak * 5) + (completedPlans * 25);
-      const level = Math.floor(totalXP / 100) + 1;
+      const totalCompletedTasks = completions.length;
+      const totalXP = profile?.stats?.totalXP || 
+        (totalCompletedTasks * 10) + (currentStreak * 5) + (completedPlans * 25);
+      const level = profile?.stats?.level || Math.floor(totalXP / 100) + 1;
 
       // Get achievements
       const achievements = JSON.parse(localStorage.getItem('unlocked-achievements') || '[]');
@@ -119,7 +110,7 @@ export const useIncentives = (studyPlans: StudyPlan[]) => {
     };
 
     calculateIncentives();
-  }, [studyPlans]);
+  }, [studyPlans, completions, profile]);
   
   // Update user stats in a separate effect to prevent infinite loop
   useEffect(() => {
@@ -131,13 +122,10 @@ export const useIncentives = (studyPlans: StudyPlan[]) => {
         totalXP: incentiveData.totalXP,
         level: incentiveData.level,
         plansCompleted: studyPlans.filter(plan => plan.progress.completedDays === plan.progress.totalDays).length,
-        totalStudyTime: Math.floor(studyPlans.reduce((total, plan) => {
-          const completedTasksData = localStorage.getItem(`completed-tasks-${plan.id}`);
-          return total + (completedTasksData ? JSON.parse(completedTasksData).length : 0);
-        }, 0) * 0.5) // Estimate 30 min per task
+        totalStudyTime: Math.floor(completions.length * 0.5) // Estimate 30 min per task
       });
     }
-  }, [incentiveData, user, updateUserStats, studyPlans]);
+  }, [incentiveData, user, updateUserStats, studyPlans, completions]);
 
   // Trigger celebrations for milestones
   const triggerCelebration = (type: 'task' | 'day' | 'plan' | 'streak' | 'achievement', title: string, message: string) => {
@@ -217,9 +205,11 @@ export const useIncentives = (studyPlans: StudyPlan[]) => {
     // Check if day is now complete
     const plan = studyPlans.find(p => p.id === planId);
     if (plan) {
-      const completedTasks = JSON.parse(localStorage.getItem(`completed-tasks-${planId}`) || '[]');
+      // Use completions from Supabase instead of localStorage
       const dayTasks = plan.schedule[dayIndex]?.tasks.length || 0;
-      const dayCompletedTasks = completedTasks.filter((id: string) => id.startsWith(`${dayIndex}-`)).length;
+      const dayCompletedTasks = completions.filter(
+        c => c.studyPlanId === planId && c.dayIndex === dayIndex
+      ).length;
       
       if (dayCompletedTasks === dayTasks) {
         awardXP(25, 'Day completed');

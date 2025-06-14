@@ -1,7 +1,8 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { User, Settings, Bell, Clock, Target, Award, Edit3, Save, X, Camera, Mail, MapPin, Calendar } from 'lucide-react';
 import { useAuth } from '../hooks/useAuth';
 import { useTheme } from '../contexts/ThemeContext';
+import { useAuthStore } from '../stores/useAuthStore';
 import ThemeToggle from './ThemeToggle';
 
 interface UserProfileProps {
@@ -10,38 +11,91 @@ interface UserProfileProps {
 
 const UserProfile: React.FC<UserProfileProps> = ({ onClose }) => {
   const { user, updateProfile, updatePreferences } = useAuth();
+  const { profile } = useAuthStore();
   const { theme } = useTheme();
   const [activeTab, setActiveTab] = useState<'profile' | 'preferences' | 'stats'>('profile');
   const [isEditing, setIsEditing] = useState(false);
+  const [isSaving, setIsSaving] = useState(false);
   const [editData, setEditData] = useState({
-    name: user?.name || '',
-    bio: user?.profile.bio || '',
-    learningGoals: user?.profile.learningGoals || [],
-    preferredStudyTime: user?.profile.preferredStudyTime || 'evening',
-    studyLevel: user?.profile.studyLevel || 'intermediate',
+    name: '',
+    bio: '',
+    learningGoals: [] as string[],
+    preferredStudyTime: 'evening',
+    studyLevel: 'intermediate',
   });
 
   const [preferences, setPreferences] = useState({
-    notifications: user?.preferences.notifications || true,
-    studyReminders: user?.preferences.studyReminders || true,
-    weeklyReports: user?.preferences.weeklyReports || true,
-    theme: user?.preferences.theme || 'light',
+    notifications: true,
+    studyReminders: true,
+    weeklyReports: true,
+    theme: 'light',
   });
 
-  if (!user) return null;
+  // Update edit data when user data changes
+  useEffect(() => {
+    if (user) {
+      setEditData({
+        name: user.name || '',
+        bio: user.profile.bio || '',
+        learningGoals: user.profile.learningGoals || [],
+        preferredStudyTime: user.profile.preferredStudyTime || 'evening',
+        studyLevel: user.profile.studyLevel || 'intermediate',
+      });
+      setPreferences({
+        notifications: user.preferences.notifications || true,
+        studyReminders: user.preferences.studyReminders || true,
+        weeklyReports: user.preferences.weeklyReports || true,
+        theme: user.preferences.theme || 'light',
+      });
+    } else if (profile) {
+      // Fallback to using profile directly if user object is not available
+      setEditData({
+        name: profile.name || '',
+        bio: profile.bio || '',
+        learningGoals: profile.learning_goals || [],
+        preferredStudyTime: profile.preferred_study_time || 'evening',
+        studyLevel: profile.study_level || 'intermediate',
+      });
+      setPreferences({
+        notifications: profile.preferences?.notifications || true,
+        studyReminders: profile.preferences?.studyReminders || true,
+        weeklyReports: profile.preferences?.weeklyReports || true,
+        theme: profile.preferences?.theme || 'light',
+      });
+    }
+  }, [user, profile]);
 
-  const handleSaveProfile = () => {
-    updateProfile({
-      bio: editData.bio,
-      learningGoals: editData.learningGoals,
-      preferredStudyTime: editData.preferredStudyTime,
-      studyLevel: editData.studyLevel,
-    });
-    setIsEditing(false);
+  if (!user && !profile) return null;
+
+  const handleSaveProfile = async () => {
+    setIsSaving(true);
+    try {
+      await updateProfile({
+        bio: editData.bio,
+        learningGoals: editData.learningGoals,
+        preferredStudyTime: editData.preferredStudyTime,
+        studyLevel: editData.studyLevel,
+      });
+      setIsEditing(false);
+    } catch (error) {
+      console.error('Failed to save profile:', error);
+      // You could add a toast notification here
+    } finally {
+      setIsSaving(false);
+    }
   };
 
-  const handleSavePreferences = () => {
-    updatePreferences(preferences);
+  const handleSavePreferences = async () => {
+    setIsSaving(true);
+    try {
+      await updatePreferences(preferences);
+      // You could add a success toast notification here
+    } catch (error) {
+      console.error('Failed to save preferences:', error);
+      // You could add an error toast notification here
+    } finally {
+      setIsSaving(false);
+    }
   };
 
   const addLearningGoal = () => {
@@ -65,6 +119,25 @@ const UserProfile: React.FC<UserProfileProps> = ({ onClose }) => {
     }));
   };
 
+  // Use either user from useAuth or profile from useAuthStore
+  const displayUser = user || {
+    name: profile?.name || '',
+    email: profile?.email || '',
+    avatar: profile?.avatar_url || '',
+    createdAt: profile?.created_at ? new Date(profile.created_at) : new Date(),
+    profile: {
+      timezone: profile?.timezone || 'UTC',
+    },
+    stats: profile?.stats || {
+      level: 1,
+      totalXP: 0,
+      currentStreak: 0,
+      longestStreak: 0,
+      plansCompleted: 0,
+      totalStudyTime: 0,
+    }
+  };
+
   return (
     <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
       <div className="bg-white dark:bg-gray-800 rounded-2xl shadow-2xl max-w-4xl w-full max-h-[90vh] overflow-hidden">
@@ -74,8 +147,8 @@ const UserProfile: React.FC<UserProfileProps> = ({ onClose }) => {
             <div className="flex items-center">
               <div className="relative">
                 <img
-                  src={user.avatar || `https://api.dicebear.com/7.x/avataaars/svg?seed=${encodeURIComponent(user.name)}`}
-                  alt={user.name}
+                  src={displayUser.avatar || `https://api.dicebear.com/7.x/avataaars/svg?seed=${encodeURIComponent(displayUser.name)}`}
+                  alt={displayUser.name}
                   className="w-16 h-16 rounded-full border-4 border-white shadow-lg"
                 />
                 <button className="absolute bottom-0 right-0 bg-white text-blue-600 p-1 rounded-full shadow-lg hover:bg-gray-50 transition-colors">
@@ -83,14 +156,14 @@ const UserProfile: React.FC<UserProfileProps> = ({ onClose }) => {
                 </button>
               </div>
               <div className="ml-4">
-                <h2 className="text-2xl font-bold">{user.name}</h2>
+                <h2 className="text-2xl font-bold">{displayUser.name}</h2>
                 <p className="text-blue-100 flex items-center">
                   <Mail className="h-4 w-4 mr-1" />
-                  {user.email}
+                  {displayUser.email}
                 </p>
                 <p className="text-blue-100 flex items-center mt-1">
                   <Calendar className="h-4 w-4 mr-1" />
-                  Member since {user.createdAt.toLocaleDateString()}
+                  Member since {displayUser.createdAt.toLocaleDateString()}
                 </p>
               </div>
             </div>
@@ -136,13 +209,19 @@ const UserProfile: React.FC<UserProfileProps> = ({ onClose }) => {
                 <h3 className="text-lg font-bold text-gray-900 dark:text-white">Profile Information</h3>
                 <button
                   onClick={() => isEditing ? handleSaveProfile() : setIsEditing(true)}
-                  className={`flex items-center px-4 py-2 rounded-lg transition-colors ${
+                  disabled={isSaving}
+                  className={`flex items-center px-4 py-2 rounded-lg transition-colors disabled:opacity-50 ${
                     isEditing
                       ? 'bg-green-600 text-white hover:bg-green-700'
                       : 'bg-blue-600 text-white hover:bg-blue-700'
                   }`}
                 >
-                  {isEditing ? (
+                  {isSaving ? (
+                    <>
+                      <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white mr-2"></div>
+                      Saving...
+                    </>
+                  ) : isEditing ? (
                     <>
                       <Save className="h-4 w-4 mr-2" />
                       Save Changes
@@ -209,7 +288,7 @@ const UserProfile: React.FC<UserProfileProps> = ({ onClose }) => {
                   </label>
                   <input
                     type="text"
-                    value={user.profile.timezone}
+                    value={displayUser.profile.timezone}
                     disabled
                     className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-gray-50 dark:bg-gray-700 dark:text-gray-300"
                   />
@@ -277,10 +356,20 @@ const UserProfile: React.FC<UserProfileProps> = ({ onClose }) => {
                 <h3 className="text-lg font-bold text-gray-900 dark:text-white">Preferences</h3>
                 <button
                   onClick={handleSavePreferences}
-                  className="bg-blue-600 text-white px-4 py-2 rounded-lg hover:bg-blue-700 transition-colors flex items-center"
+                  disabled={isSaving}
+                  className="bg-blue-600 text-white px-4 py-2 rounded-lg hover:bg-blue-700 transition-colors flex items-center disabled:opacity-50"
                 >
-                  <Save className="h-4 w-4 mr-2" />
-                  Save Preferences
+                  {isSaving ? (
+                    <>
+                      <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white mr-2"></div>
+                      Saving...
+                    </>
+                  ) : (
+                    <>
+                      <Save className="h-4 w-4 mr-2" />
+                      Save Preferences
+                    </>
+                  )}
                 </button>
               </div>
 
@@ -358,22 +447,22 @@ const UserProfile: React.FC<UserProfileProps> = ({ onClose }) => {
 
               <div className="grid grid-cols-2 lg:grid-cols-4 gap-6">
                 <div className="bg-blue-50 dark:bg-blue-900/20 p-6 rounded-xl text-center">
-                  <div className="text-3xl font-bold text-blue-600 mb-2">{user.stats.level}</div>
+                  <div className="text-3xl font-bold text-blue-600 mb-2">{displayUser.stats.level}</div>
                   <div className="text-sm text-gray-600 dark:text-gray-400">Current Level</div>
                 </div>
 
                 <div className="bg-green-50 dark:bg-green-900/20 p-6 rounded-xl text-center">
-                  <div className="text-3xl font-bold text-green-600 mb-2">{user.stats.totalXP}</div>
+                  <div className="text-3xl font-bold text-green-600 mb-2">{displayUser.stats.totalXP}</div>
                   <div className="text-sm text-gray-600 dark:text-gray-400">Total XP</div>
                 </div>
 
                 <div className="bg-orange-50 dark:bg-orange-900/20 p-6 rounded-xl text-center">
-                  <div className="text-3xl font-bold text-orange-600 mb-2">{user.stats.currentStreak}</div>
+                  <div className="text-3xl font-bold text-orange-600 mb-2">{displayUser.stats.currentStreak}</div>
                   <div className="text-sm text-gray-600 dark:text-gray-400">Current Streak</div>
                 </div>
 
                 <div className="bg-purple-50 dark:bg-purple-900/20 p-6 rounded-xl text-center">
-                  <div className="text-3xl font-bold text-purple-600 mb-2">{user.stats.plansCompleted}</div>
+                  <div className="text-3xl font-bold text-purple-600 mb-2">{displayUser.stats.plansCompleted}</div>
                   <div className="text-sm text-gray-600 dark:text-gray-400">Plans Completed</div>
                 </div>
               </div>
@@ -387,23 +476,23 @@ const UserProfile: React.FC<UserProfileProps> = ({ onClose }) => {
                   <div>
                     <div className="flex justify-between text-sm mb-2">
                       <span className="text-gray-600 dark:text-gray-400">Level Progress</span>
-                      <span className="font-medium text-gray-900 dark:text-white">{user.stats.totalXP % 100}/100 XP</span>
+                      <span className="font-medium text-gray-900 dark:text-white">{displayUser.stats.totalXP % 100}/100 XP</span>
                     </div>
                     <div className="w-full bg-gray-200 dark:bg-gray-700 rounded-full h-3">
                       <div 
                         className="bg-blue-500 h-3 rounded-full transition-all duration-300"
-                        style={{ width: `${(user.stats.totalXP % 100)}%` }}
+                        style={{ width: `${(displayUser.stats.totalXP % 100)}%` }}
                       ></div>
                     </div>
                   </div>
 
                   <div className="grid grid-cols-2 gap-4">
                     <div className="text-center p-3 bg-white dark:bg-gray-800 bg-opacity-50 rounded-lg">
-                      <div className="text-xl font-bold text-blue-600">{user.stats.longestStreak}</div>
+                      <div className="text-xl font-bold text-blue-600">{displayUser.stats.longestStreak}</div>
                       <div className="text-sm text-gray-600 dark:text-gray-400">Longest Streak</div>
                     </div>
                     <div className="text-center p-3 bg-white dark:bg-gray-800 bg-opacity-50 rounded-lg">
-                      <div className="text-xl font-bold text-green-600">{user.stats.totalStudyTime}h</div>
+                      <div className="text-xl font-bold text-green-600">{displayUser.stats.totalStudyTime}h</div>
                       <div className="text-sm text-gray-600 dark:text-gray-400">Total Study Time</div>
                     </div>
                   </div>

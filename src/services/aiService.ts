@@ -1,4 +1,7 @@
 // Real AI Service using free providers
+import { useSubscriptionStore } from '../stores/useSubscriptionStore';
+import { useUsageStore } from '../stores/useUsageStore';
+
 export interface StudyPlanRequest {
   content: string;
   duration: string;
@@ -51,6 +54,9 @@ export class AIService {
   static async generateStudyPlan(request: StudyPlanRequest): Promise<GeneratedStudyPlan> {
     console.log('🤖 Starting AI study plan generation...');
     
+    // Check subscription limits before proceeding
+    await this.checkAIRequestLimits();
+    
     try {
       // Try free AI providers in order
       const providers = [
@@ -63,6 +69,10 @@ export class AIService {
         try {
           const result = await provider();
           console.log('✅ AI generation successful!');
+          
+          // Track AI usage after successful generation
+          await this.trackAIUsage();
+          
           return result;
         } catch (error) {
           console.warn('❌ Provider failed, trying next:', error);
@@ -73,6 +83,10 @@ export class AIService {
       throw new Error('All AI providers failed');
     } catch (error) {
       console.error('🔄 All AI providers failed, using enhanced fallback');
+      
+      // Still track usage even when using fallback
+      await this.trackAIUsage();
+      
       return this.generateEnhancedFallback(request);
     }
   }
@@ -80,6 +94,9 @@ export class AIService {
   // Main method to generate quiz
   static async generateQuiz(request: QuizRequest): Promise<GeneratedQuiz> {
     console.log('🧠 Starting AI quiz generation...');
+    
+    // Check subscription limits before proceeding
+    await this.checkAIRequestLimits();
     
     try {
       // Try free AI providers in order
@@ -93,6 +110,10 @@ export class AIService {
         try {
           const result = await provider();
           console.log('✅ Quiz generation successful!');
+          
+          // Track AI usage after successful generation
+          await this.trackAIUsage();
+          
           return result;
         } catch (error) {
           console.warn('❌ Provider failed, trying next:', error);
@@ -103,6 +124,10 @@ export class AIService {
       throw new Error('All AI providers failed');
     } catch (error) {
       console.error('🔄 All AI providers failed, using fallback quiz');
+      
+      // Still track usage even when using fallback
+      await this.trackAIUsage();
+      
       return this.generateFallbackQuiz(request);
     }
   }
@@ -116,6 +141,9 @@ export class AIService {
   }): Promise<string> {
     console.log('🤖 Generating AI coaching response...');
     
+    // Check subscription limits before proceeding
+    await this.checkAIRequestLimits();
+    
     try {
       // Try free AI providers in order
       const providers = [
@@ -128,6 +156,10 @@ export class AIService {
         try {
           const result = await provider();
           console.log('✅ AI coaching response generated!');
+          
+          // Track AI usage after successful generation
+          await this.trackAIUsage();
+          
           return result;
         } catch (error) {
           console.warn('❌ Provider failed, trying next:', error);
@@ -138,7 +170,45 @@ export class AIService {
       throw new Error('All AI providers failed');
     } catch (error) {
       console.error('🔄 All AI providers failed, using enhanced fallback');
+      
+      // Still track usage even when using fallback
+      await this.trackAIUsage();
+      
       return this.generateEnhancedCoachingFallback(request);
+    }
+  }
+
+  // Check if user has reached their AI request limit
+  private static async checkAIRequestLimits(): Promise<void> {
+    // Get the subscription store state
+    const { getCurrentPlan, isSubscribed } = useSubscriptionStore.getState();
+    const { getUsage, incrementUsage } = useUsageStore.getState();
+    
+    const currentPlan = getCurrentPlan();
+    const usage = await getUsage();
+    
+    // Skip check for unlimited plans
+    if (currentPlan.limits.aiRequests === 'unlimited') {
+      return;
+    }
+    
+    // Check if user has reached their limit
+    if (usage.aiRequests >= currentPlan.limits.aiRequests) {
+      throw new Error(
+        `You've reached your monthly limit of ${currentPlan.limits.aiRequests} AI requests. ` +
+        `Please upgrade your plan to continue using AI features.`
+      );
+    }
+  }
+
+  // Track AI usage
+  private static async trackAIUsage(): Promise<void> {
+    try {
+      const { incrementUsage } = useUsageStore.getState();
+      await incrementUsage('aiRequests');
+    } catch (error) {
+      console.error('Failed to track AI usage:', error);
+      // Don't throw - we don't want to block the user if tracking fails
     }
   }
 

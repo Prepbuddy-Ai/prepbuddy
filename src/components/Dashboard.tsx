@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import {
   Plus,
   BarChart3,
@@ -10,6 +10,9 @@ import {
   Activity,
   Users,
   TrendingUp,
+  CreditCard,
+  DollarSign,
+  AlertCircle,
 } from "lucide-react";
 import { StudyPlan } from "../App";
 import PlansPage from "./PlansPage";
@@ -19,6 +22,9 @@ import StudyPlanGenerator from "./StudyPlanGenerator";
 import StreakTracker from "./StreakTracker";
 import AchievementSystem from "./AchievementSystem";
 import SocialFeatures from "./social/SocialFeatures";
+import { useSubscriptionStore } from "../stores/useSubscriptionStore";
+import { useUsageStore } from "../stores/useUsageStore";
+import LimitReachedModal from "./LimitReachedModal";
 
 interface DashboardProps {
   studyPlans: StudyPlan[];
@@ -53,6 +59,34 @@ const Dashboard: React.FC<DashboardProps> = ({
     hasFile: boolean;
   } | null>(null);
   const [sidebarOpen, setSidebarOpen] = useState(false);
+  const [showLimitModal, setShowLimitModal] = useState(false);
+  const [limitMessage, setLimitMessage] = useState('');
+
+  const { getCurrentPlan, isSubscribed } = useSubscriptionStore();
+  const { getUsage } = useUsageStore();
+  const currentPlan = getCurrentPlan();
+
+  // Load usage data
+  const [usage, setUsage] = useState({
+    studyPlansCreated: 0,
+    aiRequests: 0,
+    fileUploads: 0,
+    studyGroupsCreated: 0,
+    storageUsed: 0,
+  });
+
+  useEffect(() => {
+    const loadUsage = async () => {
+      try {
+        const currentUsage = await getUsage();
+        setUsage(currentUsage);
+      } catch (error) {
+        console.error('Failed to load usage data:', error);
+      }
+    };
+    
+    loadUsage();
+  }, [getUsage]);
 
   // Calculate overall statistics from real data
   const totalPlans = studyPlans.length;
@@ -135,6 +169,23 @@ const Dashboard: React.FC<DashboardProps> = ({
     setSidebarOpen(false); // Close sidebar on mobile after tab change
   };
 
+  const handleCreateNewClick = async () => {
+    // Check if user has reached their study plan limit
+    if (currentPlan.limits.studyPlans !== 'unlimited') {
+      if (usage.studyPlansCreated >= currentPlan.limits.studyPlans) {
+        setLimitMessage(
+          `You've reached your limit of ${currentPlan.limits.studyPlans} study plans per month. ` +
+          `Please upgrade your plan to create more study plans.`
+        );
+        setShowLimitModal(true);
+        return;
+      }
+    }
+    
+    // If within limits, proceed to create tab
+    handleTabChange('create');
+  };
+
   const navigationItems = [
     {
       id: "overview",
@@ -174,6 +225,16 @@ const Dashboard: React.FC<DashboardProps> = ({
     },
   ];
 
+  // Calculate remaining usage for display
+  const getRemainingUsage = () => {
+    if (currentPlan.limits.studyPlans === 'unlimited') {
+      return 'Unlimited';
+    }
+    
+    const remaining = Math.max(0, currentPlan.limits.studyPlans - usage.studyPlansCreated);
+    return `${remaining} remaining`;
+  };
+
   return (
     <div className="flex h-screen bg-gray-50 dark:bg-gray-900 pt-16">
       {/* Mobile Menu Button - Fixed Position */}
@@ -204,8 +265,35 @@ const Dashboard: React.FC<DashboardProps> = ({
           <h2 className="text-lg font-bold text-gray-900">Dashboard</h2>
           <p className="text-sm text-gray-600">Manage your learning</p>
 
-          {/* Level Display */}
+          {/* Plan Status */}
           <div className="mt-4 p-3 bg-gradient-to-r from-blue-50 to-indigo-50 rounded-lg">
+            <div className="flex items-center justify-between mb-2">
+              <span className="text-sm font-medium text-gray-700">
+                Current Plan
+              </span>
+              <span className={`text-xs px-2 py-1 rounded-full ${
+                isSubscribed() 
+                  ? 'bg-purple-100 text-purple-800'
+                  : 'bg-gray-100 text-gray-600'
+              }`}>
+                {currentPlan.name}
+              </span>
+            </div>
+            {!isSubscribed() && (
+              <div className="mt-2">
+                <a
+                  href="/pricing"
+                  className="text-blue-600 hover:text-blue-700 text-sm font-medium flex items-center"
+                >
+                  <DollarSign className="h-4 w-4 mr-1" />
+                  Upgrade Plan
+                </a>
+              </div>
+            )}
+          </div>
+
+          {/* Level Display */}
+          <div className="mt-4 p-3 bg-gradient-to-r from-yellow-50 to-orange-50 rounded-lg">
             <div className="flex items-center justify-between mb-2">
               <span className="text-sm font-medium text-gray-700">
                 Level {incentiveData.level}
@@ -256,6 +344,26 @@ const Dashboard: React.FC<DashboardProps> = ({
             </button>
           ))}
         </nav>
+
+        {/* Quick Actions */}
+        <div className="p-4 border-t border-gray-200 dark:border-gray-700">
+          <div className="space-y-2">
+            <a
+              href="/billing"
+              className="w-full flex items-center px-3 py-2 text-sm text-gray-600 hover:text-blue-600 hover:bg-blue-50 rounded-lg transition-colors"
+            >
+              <CreditCard className="h-4 w-4 mr-2" />
+              Billing & Plans
+            </a>
+            <a
+              href="/pricing"
+              className="w-full flex items-center px-3 py-2 text-sm text-gray-600 hover:text-green-600 hover:bg-green-50 rounded-lg transition-colors"
+            >
+              <DollarSign className="h-4 w-4 mr-2" />
+              View Pricing
+            </a>
+          </div>
+        </div>
       </div>
 
       {/* Main Content Area - Fixed Height with Scrollable Content */}
@@ -342,6 +450,108 @@ const Dashboard: React.FC<DashboardProps> = ({
                   </div>
                 </div>
 
+                {/* Subscription Status Card */}
+                <div className="mb-6 sm:mb-8">
+                  <div className="bg-white dark:bg-gray-800 rounded-xl shadow-lg border border-gray-200 dark:border-gray-700 p-4 sm:p-6 transition-colors duration-200">
+                    <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between">
+                      <div className="mb-4 sm:mb-0">
+                        <h3 className="text-lg font-bold text-gray-900 dark:text-white flex items-center">
+                          <CreditCard className="h-5 w-5 mr-2 text-blue-600" />
+                          Current Plan: {currentPlan.name}
+                        </h3>
+                        <p className="text-gray-600 dark:text-gray-400 mt-1">
+                          {isSubscribed() 
+                            ? `You have access to all ${currentPlan.name} features`
+                            : 'Upgrade to unlock more features and AI-powered learning tools'}
+                        </p>
+                      </div>
+                      <div className="flex space-x-3">
+                        <a
+                          href="/pricing"
+                          className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors text-sm font-medium"
+                        >
+                          {isSubscribed() ? 'Change Plan' : 'Upgrade'}
+                        </a>
+                        <a
+                          href="/billing"
+                          className="px-4 py-2 border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-50 transition-colors text-sm font-medium dark:border-gray-600 dark:text-gray-300 dark:hover:bg-gray-700"
+                        >
+                          Manage Billing
+                        </a>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Usage Limits Card */}
+                <div className="mb-6 sm:mb-8">
+                  <div className="bg-white dark:bg-gray-800 rounded-xl shadow-lg border border-gray-200 dark:border-gray-700 p-4 sm:p-6 transition-colors duration-200">
+                    <h3 className="text-lg font-bold text-gray-900 dark:text-white mb-4 flex items-center">
+                      <Activity className="h-5 w-5 mr-2 text-purple-600" />
+                      Usage This Month
+                    </h3>
+                    
+                    <div className="grid md:grid-cols-3 gap-4">
+                      <div>
+                        <div className="flex justify-between text-sm mb-2">
+                          <span className="text-gray-600 dark:text-gray-400">Study Plans</span>
+                          <span className="font-medium text-gray-900 dark:text-white">
+                            {currentPlan.limits.studyPlans === 'unlimited' 
+                              ? 'Unlimited' 
+                              : `${usage.studyPlansCreated}/${currentPlan.limits.studyPlans}`}
+                          </span>
+                        </div>
+                        {currentPlan.limits.studyPlans !== 'unlimited' && (
+                          <div className="w-full bg-gray-200 dark:bg-gray-700 rounded-full h-2">
+                            <div 
+                              className="bg-blue-500 h-2 rounded-full"
+                              style={{ width: `${Math.min(100, (usage.studyPlansCreated / (currentPlan.limits.studyPlans as number)) * 100)}%` }}
+                            ></div>
+                          </div>
+                        )}
+                      </div>
+                      
+                      <div>
+                        <div className="flex justify-between text-sm mb-2">
+                          <span className="text-gray-600 dark:text-gray-400">AI Requests</span>
+                          <span className="font-medium text-gray-900 dark:text-white">
+                            {currentPlan.limits.aiRequests === 'unlimited' 
+                              ? 'Unlimited' 
+                              : `${usage.aiRequests}/${currentPlan.limits.aiRequests}`}
+                          </span>
+                        </div>
+                        {currentPlan.limits.aiRequests !== 'unlimited' && (
+                          <div className="w-full bg-gray-200 dark:bg-gray-700 rounded-full h-2">
+                            <div 
+                              className="bg-green-500 h-2 rounded-full"
+                              style={{ width: `${Math.min(100, (usage.aiRequests / (currentPlan.limits.aiRequests as number)) * 100)}%` }}
+                            ></div>
+                          </div>
+                        )}
+                      </div>
+                      
+                      <div>
+                        <div className="flex justify-between text-sm mb-2">
+                          <span className="text-gray-600 dark:text-gray-400">File Uploads</span>
+                          <span className="font-medium text-gray-900 dark:text-white">
+                            {currentPlan.limits.fileUploads === 'unlimited' 
+                              ? 'Unlimited' 
+                              : `${usage.fileUploads}/${currentPlan.limits.fileUploads}`}
+                          </span>
+                        </div>
+                        {currentPlan.limits.fileUploads !== 'unlimited' && (
+                          <div className="w-full bg-gray-200 dark:bg-gray-700 rounded-full h-2">
+                            <div 
+                              className="bg-purple-500 h-2 rounded-full"
+                              style={{ width: `${Math.min(100, (usage.fileUploads / (currentPlan.limits.fileUploads as number)) * 100)}%` }}
+                            ></div>
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                  </div>
+                </div>
+
                 {/* Incentive Components - Mobile Stack */}
                 <div className="space-y-6 lg:space-y-0 lg:grid lg:grid-cols-2 lg:gap-8 mb-6 sm:mb-8">
                   <StreakTracker
@@ -410,12 +620,15 @@ const Dashboard: React.FC<DashboardProps> = ({
                     </h3>
                     <div className="space-y-3">
                       <button
-                        onClick={() => handleTabChange("create")}
+                        onClick={handleCreateNewClick}
                         className="w-full flex items-center p-3 bg-gradient-to-r from-blue-50 to-indigo-50 dark:from-blue-900/20 dark:to-indigo-900/20 border border-blue-200 dark:border-blue-800/30 rounded-lg hover:from-blue-100 hover:to-indigo-100 dark:hover:from-blue-900/30 dark:hover:to-indigo-900/30 transition-all duration-200"
                       >
                         <Plus className="h-5 w-5 mr-3 flex-shrink-0" />
                         <span className="font-medium text-blue-700 dark:text-blue-400 text-sm sm:text-base">
                           Create New Study Plan
+                        </span>
+                        <span className="ml-auto text-xs bg-blue-100 text-blue-800 px-2 py-1 rounded-full">
+                          {getRemainingUsage()}
                         </span>
                       </button>
 
@@ -438,6 +651,16 @@ const Dashboard: React.FC<DashboardProps> = ({
                           View Analytics
                         </span>
                       </button>
+                      
+                      <a
+                        href="/billing"
+                        className="w-full flex items-center p-3 bg-gradient-to-r from-purple-50 to-indigo-50 dark:from-purple-900/20 dark:to-indigo-900/20 border border-purple-200 dark:border-purple-800/30 rounded-lg hover:from-purple-100 hover:to-indigo-100 dark:hover:from-purple-900/30 dark:hover:to-indigo-900/30 transition-all duration-200"
+                      >
+                        <CreditCard className="h-5 w-5 mr-3 flex-shrink-0" />
+                        <span className="font-medium text-purple-700 dark:text-purple-400 text-sm sm:text-base">
+                          Manage Subscription
+                        </span>
+                      </a>
                     </div>
                   </div>
                 </div>
@@ -535,7 +758,7 @@ const Dashboard: React.FC<DashboardProps> = ({
                       your learning journey.
                     </p>
                     <button
-                      onClick={() => handleTabChange("create")}
+                      onClick={handleCreateNewClick}
                       className="bg-blue-600 hover:bg-blue-700 dark:bg-blue-700 dark:hover:bg-blue-600 text-white rounded-lg px-6 py-3 text-sm sm:text-base font-medium transition-colors"
                     >
                       Create Your First Study Plan
@@ -548,7 +771,7 @@ const Dashboard: React.FC<DashboardProps> = ({
             {activeTab === "plans" && (
               <PlansPage
                 studyPlans={studyPlans}
-                onCreateNew={() => handleTabChange("create")}
+                onCreateNew={handleCreateNewClick}
                 onViewPlan={onViewPlan}
                 onDeletePlan={onDeletePlan}
               />
@@ -587,6 +810,15 @@ const Dashboard: React.FC<DashboardProps> = ({
           </div>
         </div>
       </div>
+
+      {/* Subscription Limit Modal */}
+      <LimitReachedModal
+        isOpen={showLimitModal}
+        onClose={() => setShowLimitModal(false)}
+        message={limitMessage}
+        featureName="Study Plans"
+        currentPlan={currentPlan.name}
+      />
     </div>
   );
 };

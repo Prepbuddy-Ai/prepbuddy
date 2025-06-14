@@ -16,23 +16,25 @@ import CreateGroupModal from "./modals/CreateGroupModal";
 import AddMemberModal from "./modals/AddMemberModal";
 import UploadFileModal from "./modals/UploadFileModal";
 import { FileProcessor } from "../../services/fileProcessor";
+import { useSubscriptionStore } from "../../stores/useSubscriptionStore";
+import { useUsageStore } from "../../stores/useUsageStore";
 
 interface SocialFeaturesProps {}
 
 const SocialFeaturesContent: React.FC = () => {
   const { user } = useAuth();
   const { studyGroups, selectedGroup, setStudyGroups, setSelectedGroup } = useStudyGroups();
+  const { getCurrentPlan, isSubscribed } = useSubscriptionStore();
+  const { getUsage, incrementUsage } = useUsageStore();
 
   // UI state
   const [activeView, setActiveView] = useState<string>("groups-list");
-  const [isCreateGroupModalOpen, setIsCreateGroupModalOpen] =
-    useState<boolean>(false);
-  const [isAddMemberModalOpen, setIsAddMemberModalOpen] =
-    useState<boolean>(false);
-  const [isUploadFileModalOpen, setIsUploadFileModalOpen] =
-    useState<boolean>(false);
+  const [isCreateGroupModalOpen, setIsCreateGroupModalOpen] = useState<boolean>(false);
+  const [isAddMemberModalOpen, setIsAddMemberModalOpen] = useState<boolean>(false);
+  const [isUploadFileModalOpen, setIsUploadFileModalOpen] = useState<boolean>(false);
   const [isUploading, setIsUploading] = useState<boolean>(false);
   const [uploadError, setUploadError] = useState<string | null>(null);
+  const [subscriptionError, setSubscriptionError] = useState<string | null>(null);
 
   // Form data
   const [newGroupData, setNewGroupData] = useState<NewGroupData>({
@@ -44,45 +46,67 @@ const SocialFeaturesContent: React.FC = () => {
   const [newMemberEmail, setNewMemberEmail] = useState<string>("");
 
   // Create a new group
-  const createGroup = () => {
+  const createGroup = async () => {
     if (!user) return;
 
-    const newGroup: StudyGroup = {
-      id: Date.now().toString(),
-      name: newGroupData.name,
-      description: newGroupData.description,
-      topic: newGroupData.topic,
-      difficulty: newGroupData.difficulty,
-      adminId: user.id,
-      adminName: user.name || user.email.split("@")[0],
-      isPublic: newGroupData.isPublic || false,
-      createdAt: new Date(),
-      lastActivity: new Date(),
-      members: [
-        {
-          id: user.id,
-          name: user.name || user.email.split("@")[0],
-          email: user.email,
-          role: "admin",
-          avatar: user.avatar || "",
-          joinedAt: new Date(),
-          isActive: true,
-        },
-      ],
-      files: [],
-      memberProgress: {},
-    };
+    try {
+      // Check subscription limits
+      const currentPlan = getCurrentPlan();
+      const usage = await getUsage();
+      
+      if (currentPlan.limits.studyGroups !== 'unlimited') {
+        if (studyGroups.length >= currentPlan.limits.studyGroups) {
+          setSubscriptionError(
+            `You've reached your limit of ${currentPlan.limits.studyGroups} study groups. ` +
+            `Please upgrade your plan to create more groups.`
+          );
+          return;
+        }
+      }
 
-    setStudyGroups([...studyGroups, newGroup]);
-    setSelectedGroup(newGroup);
-    setNewGroupData({
-      name: "",
-      description: "",
-      topic: "",
-      difficulty: "intermediate",
-    });
-    setIsCreateGroupModalOpen(false);
-    setActiveView("group-detail");
+      const newGroup: StudyGroup = {
+        id: Date.now().toString(),
+        name: newGroupData.name,
+        description: newGroupData.description,
+        topic: newGroupData.topic,
+        difficulty: newGroupData.difficulty,
+        adminId: user.id,
+        adminName: user.name || user.email.split("@")[0],
+        isPublic: newGroupData.isPublic || false,
+        createdAt: new Date(),
+        lastActivity: new Date(),
+        members: [
+          {
+            id: user.id,
+            name: user.name || user.email.split("@")[0],
+            email: user.email,
+            role: "admin",
+            avatar: user.avatar || "",
+            joinedAt: new Date(),
+            isActive: true,
+          },
+        ],
+        files: [],
+        memberProgress: {},
+      };
+
+      setStudyGroups([...studyGroups, newGroup]);
+      setSelectedGroup(newGroup);
+      setNewGroupData({
+        name: "",
+        description: "",
+        topic: "",
+        difficulty: "intermediate",
+      });
+      setIsCreateGroupModalOpen(false);
+      setActiveView("group-detail");
+      
+      // Track usage
+      await incrementUsage('studyGroupsCreated');
+    } catch (error) {
+      console.error('Failed to create group:', error);
+      setSubscriptionError(error instanceof Error ? error.message : 'Failed to create group');
+    }
   };
 
   // Add a member to the selected group
@@ -138,6 +162,51 @@ const SocialFeaturesContent: React.FC = () => {
     setUploadError(null);
 
     try {
+      // Check subscription limits for file uploads
+      const currentPlan = getCurrentPlan();
+      const usage = await getUsage();
+      
+      if (currentPlan.limits.fileUploads !== 'unlimited') {
+        if (usage.fileUploads >= currentPlan.limits.fileUploads) {
+          throw new Error(
+            `You've reached your limit of ${currentPlan.limits.fileUploads} file uploads per month. ` +
+            `Please upgrade your plan to upload more files.`
+          );
+        }
+      }
+      
+      // Check storage limits
+      const storageLimit = currentPlan.limits.storage;
+      const currentStorage = usage.storageUsed;
+      const fileSizeBytes = file.size;
+      
+      // Convert storage limit to bytes
+      let storageLimitBytes: number;
+      if (storageLimit === 'unlimited') {
+        storageLimitBytes = Number.MAX_SAFE_INTEGER;
+      } else {
+        const match = storageLimit.match(/(\d+)(MB|GB)/);
+        if (!match) throw new Error('Invalid storage limit format');
+        
+        const amount = parseInt(match[1]);
+        const unit = match[2];
+        
+        if (unit === 'MB') {
+          storageLimitBytes = amount * 1024 * 1024;
+        } else if (unit === 'GB') {
+          storageLimitBytes = amount * 1024 * 1024 * 1024;
+        } else {
+          throw new Error('Invalid storage unit');
+        }
+      }
+      
+      if (currentStorage + fileSizeBytes > storageLimitBytes) {
+        throw new Error(
+          `You've reached your storage limit of ${storageLimit}. ` +
+          `Please upgrade your plan or delete some files to free up space.`
+        );
+      }
+
       // Validate file size
       const isValidSize = FileProcessor.validateFileSize(file);
 
@@ -189,11 +258,16 @@ const SocialFeaturesContent: React.FC = () => {
 
       setStudyGroups(updatedGroups);
       setSelectedGroup(updatedGroup);
+      
+      // Track file upload usage
+      await incrementUsage('fileUploads');
+      await incrementUsage('storageUsed', file.size);
+      
       setIsUploading(false);
       setIsUploadFileModalOpen(false);
     } catch (error) {
       console.error("Error uploading file:", error);
-      setUploadError("Failed to process file");
+      setUploadError(error instanceof Error ? error.message : "Failed to process file");
       setIsUploading(false);
     }
   };
@@ -359,6 +433,38 @@ const SocialFeaturesContent: React.FC = () => {
     }
   };
 
+  // Subscription error message
+  const renderSubscriptionError = () => {
+    if (!subscriptionError) return null;
+    
+    return (
+      <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
+        <div className="bg-white dark:bg-gray-800 rounded-lg shadow-lg max-w-md w-full p-6">
+          <h3 className="text-xl font-bold text-gray-900 dark:text-white mb-4">
+            Subscription Limit Reached
+          </h3>
+          <p className="text-gray-600 dark:text-gray-400 mb-6">
+            {subscriptionError}
+          </p>
+          <div className="flex justify-end space-x-3">
+            <button
+              onClick={() => setSubscriptionError(null)}
+              className="px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-md text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-700"
+            >
+              Close
+            </button>
+            <a
+              href="/pricing"
+              className="px-4 py-2 bg-blue-600 hover:bg-blue-700 dark:bg-blue-700 dark:hover:bg-blue-800 text-white rounded-md"
+            >
+              Upgrade Plan
+            </a>
+          </div>
+        </div>
+      </div>
+    );
+  };
+
   return (
     <div className="container mx-auto px-4 py-8">
       {renderView()}
@@ -387,6 +493,9 @@ const SocialFeaturesContent: React.FC = () => {
         uploadError={uploadError}
         onFileUpload={handleFileUpload}
       />
+      
+      {/* Subscription Error Modal */}
+      {renderSubscriptionError()}
     </div>
   );
 };

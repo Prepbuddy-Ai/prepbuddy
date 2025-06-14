@@ -2,6 +2,9 @@ import React, { useState, useEffect } from 'react';
 import { ArrowLeft, Settings, Calendar, Clock, Target, Sparkles, AlertCircle, Zap, Brain, CheckCircle, ExternalLink } from 'lucide-react';
 import { StudyPlan } from '../App';
 import { AIService } from '../services/aiService';
+import { useSubscriptionStore } from '../stores/useSubscriptionStore';
+import { useUsageStore } from '../stores/useUsageStore';
+import LimitReachedModal from './LimitReachedModal';
 
 interface StudyPlanGeneratorProps {
   inputData: {
@@ -29,6 +32,12 @@ const StudyPlanGenerator: React.FC<StudyPlanGeneratorProps> = ({
   const [error, setError] = useState<string | null>(null);
   const [contentAnalysis, setContentAnalysis] = useState<any>(null);
   const [showApiSetup, setShowApiSetup] = useState(false);
+  const [showLimitModal, setShowLimitModal] = useState(false);
+  const [limitMessage, setLimitMessage] = useState('');
+
+  // Get subscription and usage data
+  const { getCurrentPlan } = useSubscriptionStore();
+  const { getUsage, incrementUsage } = useUsageStore();
 
   const steps = [
     'Analyzing content structure...',
@@ -58,6 +67,22 @@ const StudyPlanGenerator: React.FC<StudyPlanGeneratorProps> = ({
     setError(null);
     
     try {
+      // Check AI request limits before generating plan
+      const currentPlan = getCurrentPlan();
+      const usage = await getUsage();
+      
+      if (currentPlan.limits.aiRequests !== 'unlimited') {
+        if (usage.aiRequests >= currentPlan.limits.aiRequests) {
+          setLimitMessage(
+            `You've reached your limit of ${currentPlan.limits.aiRequests} AI requests per month. ` +
+            `Please upgrade your plan to generate more study plans.`
+          );
+          setShowLimitModal(true);
+          setIsGenerating(false);
+          return;
+        }
+      }
+      
       // Simulate step-by-step progress with realistic timing
       for (let i = 0; i < steps.length; i++) {
         setCurrentStep(i);
@@ -87,13 +112,22 @@ const StudyPlanGenerator: React.FC<StudyPlanGeneratorProps> = ({
         createdAt: new Date(),
       };
 
+      // Track AI usage after successful generation
+      await incrementUsage('aiRequests');
+      
       console.log('✅ Study plan generated successfully!', plan);
       setIsGenerating(false);
       onPlanGenerated(plan);
     } catch (error) {
       console.error('❌ Study plan generation failed:', error);
       setIsGenerating(false);
-      setError(error instanceof Error ? error.message : 'Failed to generate study plan');
+      
+      if (error instanceof Error && error.message.includes('limit')) {
+        setLimitMessage(error.message);
+        setShowLimitModal(true);
+      } else {
+        setError(error instanceof Error ? error.message : 'Failed to generate study plan');
+      }
     }
   };
 
@@ -510,6 +544,15 @@ const StudyPlanGenerator: React.FC<StudyPlanGeneratorProps> = ({
           </div>
         )}
       </div>
+
+      {/* Subscription Limit Modal */}
+      <LimitReachedModal
+        isOpen={showLimitModal}
+        onClose={() => setShowLimitModal(false)}
+        message={limitMessage}
+        featureName="AI Requests"
+        currentPlan={getCurrentPlan().name}
+      />
     </div>
   );
 };

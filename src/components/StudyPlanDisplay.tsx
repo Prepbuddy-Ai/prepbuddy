@@ -4,6 +4,8 @@ import { StudyPlan, Quiz } from '../App';
 import { FileProcessor } from '../services/fileProcessor';
 import { AIService } from '../services/aiService';
 import AICoaching from './AICoaching';
+import { useSubscriptionStore } from '../stores/useSubscriptionStore';
+import { useUsageStore } from '../stores/useUsageStore';
 
 interface StudyPlanDisplayProps {
   studyPlan: StudyPlan;
@@ -39,6 +41,11 @@ const StudyPlanDisplay: React.FC<StudyPlanDisplayProps> = ({
   const [showSocialShare, setShowSocialShare] = useState(false);
   const [showAICoach, setShowAICoach] = useState(false);
   const [selectedTask, setSelectedTask] = useState<string | null>(null);
+  const [subscriptionError, setSubscriptionError] = useState<string | null>(null);
+
+  // Get subscription and usage data
+  const { getCurrentPlan } = useSubscriptionStore();
+  const { getUsage, incrementUsage } = useUsageStore();
 
   // Load completed tasks from localStorage
   useEffect(() => {
@@ -68,12 +75,62 @@ const StudyPlanDisplay: React.FC<StudyPlanDisplayProps> = ({
     setUploadError(null);
     
     try {
+      // Check subscription limits for file uploads
+      const currentPlan = getCurrentPlan();
+      const usage = await getUsage();
+      
+      if (currentPlan.limits.fileUploads !== 'unlimited') {
+        if (usage.fileUploads >= currentPlan.limits.fileUploads) {
+          throw new Error(
+            `You've reached your limit of ${currentPlan.limits.fileUploads} file uploads per month. ` +
+            `Please upgrade your plan to upload more files.`
+          );
+        }
+      }
+      
+      // Check storage limits
+      const storageLimit = currentPlan.limits.storage;
+      const currentStorage = usage.storageUsed;
+      const fileSizeBytes = file.size;
+      
+      // Convert storage limit to bytes
+      let storageLimitBytes: number;
+      if (storageLimit === 'unlimited') {
+        storageLimitBytes = Number.MAX_SAFE_INTEGER;
+      } else {
+        const match = storageLimit.match(/(\d+)(MB|GB)/);
+        if (!match) throw new Error('Invalid storage limit format');
+        
+        const amount = parseInt(match[1]);
+        const unit = match[2];
+        
+        if (unit === 'MB') {
+          storageLimitBytes = amount * 1024 * 1024;
+        } else if (unit === 'GB') {
+          storageLimitBytes = amount * 1024 * 1024 * 1024;
+        } else {
+          throw new Error('Invalid storage unit');
+        }
+      }
+      
+      if (currentStorage + fileSizeBytes > storageLimitBytes) {
+        throw new Error(
+          `You've reached your storage limit of ${storageLimit}. ` +
+          `Please upgrade your plan or delete some files to free up space.`
+        );
+      }
+
       if (!FileProcessor.validateFileSize(file)) {
         throw new Error('File size exceeds 25MB limit');
       }
 
       const content = await FileProcessor.extractTextFromFile(file);
       await onAddFile(studyPlan.id, file, content);
+      
+      // Track file upload usage
+      await incrementUsage('fileUploads');
+      await incrementUsage('storageUsed', file.size);
+      
       setShowAddFile(false);
     } catch (error) {
       setUploadError(error instanceof Error ? error.message : 'Failed to process file');
@@ -86,6 +143,19 @@ const StudyPlanDisplay: React.FC<StudyPlanDisplayProps> = ({
     setGeneratingQuiz(dayIndex);
     
     try {
+      // Check AI request limits before generating quiz
+      const currentPlan = getCurrentPlan();
+      const usage = await getUsage();
+      
+      if (currentPlan.limits.aiRequests !== 'unlimited') {
+        if (usage.aiRequests >= currentPlan.limits.aiRequests) {
+          throw new Error(
+            `You've reached your limit of ${currentPlan.limits.aiRequests} AI requests per month. ` +
+            `Please upgrade your plan to generate more quizzes.`
+          );
+        }
+      }
+      
       const day = studyPlan.schedule[dayIndex];
       const dayContent = studyPlan.files.map(f => f.content).join('\n\n');
       
@@ -102,40 +172,45 @@ const StudyPlanDisplay: React.FC<StudyPlanDisplayProps> = ({
       onStartQuiz(quiz, dayIndex, studyPlan.id);
     } catch (error) {
       console.error('Failed to generate quiz:', error);
-      // Create a fallback quiz
-      const fallbackQuiz: Quiz = {
-        id: `quiz-${studyPlan.id}-${dayIndex}`,
-        title: `${studyPlan.schedule[dayIndex].title} Quiz`,
-        questions: [
-          {
-            id: '1',
-            question: `What is the main focus of today's study session: "${studyPlan.schedule[dayIndex].title}"?`,
-            options: [
-              'Understanding core concepts',
-              'Memorizing facts only',
-              'Skipping difficult parts',
-              'Rushing through material'
-            ],
-            correctAnswer: 0,
-            explanation: 'The main focus should be understanding core concepts to build a solid foundation.'
-          },
-          {
-            id: '2',
-            question: 'Which study technique is most effective for long-term retention?',
-            options: [
-              'Passive reading',
-              'Active recall and spaced repetition',
-              'Highlighting everything',
-              'Cramming before tests'
-            ],
-            correctAnswer: 1,
-            explanation: 'Active recall and spaced repetition are proven to be the most effective for long-term retention.'
-          }
-        ],
-        passingScore: 70
-      };
       
-      onStartQuiz(fallbackQuiz, dayIndex, studyPlan.id);
+      if (error instanceof Error && error.message.includes('limit')) {
+        setSubscriptionError(error.message);
+      } else {
+        // Create a fallback quiz
+        const fallbackQuiz: Quiz = {
+          id: `quiz-${studyPlan.id}-${dayIndex}`,
+          title: `${studyPlan.schedule[dayIndex].title} Quiz`,
+          questions: [
+            {
+              id: '1',
+              question: `What is the main focus of today's study session: "${studyPlan.schedule[dayIndex].title}"?`,
+              options: [
+                'Understanding core concepts',
+                'Memorizing facts only',
+                'Skipping difficult parts',
+                'Rushing through material'
+              ],
+              correctAnswer: 0,
+              explanation: 'The main focus should be understanding core concepts to build a solid foundation.'
+            },
+            {
+              id: '2',
+              question: 'Which study technique is most effective for long-term retention?',
+              options: [
+                'Passive reading',
+                'Active recall and spaced repetition',
+                'Highlighting everything',
+                'Cramming before tests'
+              ],
+              correctAnswer: 1,
+              explanation: 'Active recall and spaced repetition are proven to be the most effective for long-term retention.'
+            }
+          ],
+          passingScore: 70
+        };
+        
+        onStartQuiz(fallbackQuiz, dayIndex, studyPlan.id);
+      }
     } finally {
       setGeneratingQuiz(null);
     }
@@ -182,9 +257,29 @@ const StudyPlanDisplay: React.FC<StudyPlanDisplayProps> = ({
     }
   };
 
-  const handleTaskHelp = (task: string) => {
-    setSelectedTask(task);
-    setShowAICoach(true);
+  const handleTaskHelp = async (task: string) => {
+    try {
+      // Check AI request limits before showing AI coach
+      const currentPlan = getCurrentPlan();
+      const usage = await getUsage();
+      
+      if (currentPlan.limits.aiRequests !== 'unlimited') {
+        if (usage.aiRequests >= currentPlan.limits.aiRequests) {
+          throw new Error(
+            `You've reached your limit of ${currentPlan.limits.aiRequests} AI requests per month. ` +
+            `Please upgrade your plan to use the AI coach.`
+          );
+        }
+      }
+      
+      setSelectedTask(task);
+      setShowAICoach(true);
+    } catch (error) {
+      console.error('Failed to show AI coach:', error);
+      if (error instanceof Error) {
+        setSubscriptionError(error.message);
+      }
+    }
   };
 
   const selectedDayData = studyPlan.schedule.find(day => day.day === selectedDay);
@@ -563,6 +658,40 @@ const StudyPlanDisplay: React.FC<StudyPlanDisplayProps> = ({
                   </p>
                 </>
               )}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Subscription Error Modal */}
+      {subscriptionError && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-2xl shadow-xl max-w-md w-full p-6">
+            <div className="flex justify-between items-center mb-4">
+              <h3 className="text-xl font-bold text-gray-900">Subscription Limit Reached</h3>
+              <button
+                onClick={() => setSubscriptionError(null)}
+                className="text-gray-400 hover:text-gray-600 p-1"
+              >
+                <X className="h-6 w-6" />
+              </button>
+            </div>
+            
+            <p className="text-gray-600 mb-6">{subscriptionError}</p>
+            
+            <div className="flex justify-end space-x-3">
+              <button
+                onClick={() => setSubscriptionError(null)}
+                className="px-4 py-2 border border-gray-300 rounded-lg text-gray-700 hover:bg-gray-50"
+              >
+                Close
+              </button>
+              <a
+                href="/pricing"
+                className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700"
+              >
+                Upgrade Plan
+              </a>
             </div>
           </div>
         </div>
